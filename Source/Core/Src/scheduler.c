@@ -9,106 +9,192 @@
 #include "scheduler.h"
 
 
-sTask SCH_tasks_G[SCH_MAX_TASKS];//Khai báo đây để bao đóng
-uint8_t current_index_task = 0;//Bình thường là khai báo ở trong HÀM
+sTask* headtask;
+uint32_t taskcount;
+uint32_t waittime;
+uint32_t availableID;
+uint32_t IDtoPrint; //to save ID just ran task to Print after calling Dispatch
 
+uint8_t Error_code_G;
+
+
+void SCH_Init(void){
+	headtask = NULL;
+	taskcount = 0;
+	waittime = 0;
+	availableID = 1;
+	IDtoPrint = 0;
+}
+
+
+
+void enqueue(sTask* newtask){
+	if (headtask == NULL){
+		headtask = newtask;
+		return;
+	}
+
+	sTask* now = headtask;
+	sTask* pre = NULL;
+
+	while (now != NULL)
+	{
+		if (now->Delay > newtask->Delay)
+		{
+			if (now == headtask)
+			{
+				newtask->next = headtask;
+				headtask = newtask;
+				now->Delay -= newtask->Delay;
+			}
+			else
+			{
+				newtask->next = now;
+				pre->next = newtask;
+				now->Delay -= newtask->Delay;
+			}
+			return;
+		}
+
+
+		newtask->Delay -= now->Delay;
+		pre = now;
+		now = now->next;
+	}
+
+
+	if (now == NULL)
+		{
+			pre->next = newtask;
+			return;
+		}
+
+
+
+}
+uint32_t SCH_Add_Task(void (*pFunction)(), uint32_t DELAY, uint32_t PERIOD){
+
+	if (taskcount > SCH_MAX_TASKS) {
+		Error_code_G = ERROR_SCH_TOO_MANY_TASKS;
+	}
+	taskcount++;
+	sTask* newtask = malloc(sizeof(sTask));
+	if (newtask == NULL) return 0;
+
+	newtask->pTask = pFunction;
+	newtask->Delay = DELAY / TICK;
+	newtask->Period = PERIOD / TICK;
+	newtask->TaskID = availableID++;
+	newtask->next = NULL;
+
+	enqueue(newtask);
+
+	return newtask->TaskID;
+}
+
+void SCH_Update(void){
+	if (headtask == NULL){
+		waittime = (taskcount > 0) ? waittime + 1 : 0;
+		return;
+	}
+	waittime++;
+	if (headtask->Delay > 0){
+		int temp = headtask->Delay - waittime;
+		if (temp >= 0) {
+			headtask->Delay = temp;
+			waittime = 0;
+		}
+		else
+		{
+			headtask->Delay = 0;
+			waittime = 0 - temp;
+		}
+	}
+
+	return;
+
+}
+
+uint8_t SCH_Dispatch_Tasks(void){
+	if (headtask == NULL || headtask->Delay > 0) return 0;
+	sTask* run = headtask;
+	headtask = headtask->next;
+	run->next = NULL;
+	run->Delay = run->Period;
+
+	run->pTask();
+
+	IDtoPrint = run->TaskID; // để mà in ra
+
+	if (run->Period != 0) enqueue(run);
+	else free(run);
+	return 1;
+}
+
+uint8_t SCH_Delete_Task(uint32_t deltaskID){
+	if (deltaskID <= 0 && deltaskID >= SCH_MAX_TASKS) {
+		Error_code_G = ERROR_SCH_CANNOT_DELETE_TASK;
+		return 0;
+	}
+	sTask* now = headtask;
+	sTask* pre = NULL;
+	if (deltaskID == 1)
+	{
+		taskcount--;
+		headtask = headtask->next;
+		now->next->Delay += now->Delay;
+		free(now);
+		return 1;
+	}
+	now = headtask;
+	pre = NULL;
+	while (now->TaskID != deltaskID && now != NULL){
+		pre = now;
+		now = now->next;
+	}
+	if (now == NULL) {
+		Error_code_G = ERROR_SCH_CANNOT_DELETE_TASK;
+	}
+
+	if (now->next != NULL) now->next->Delay += now->Delay;
+	if (pre != NULL) pre->next = now->next;
+	free(now);
+	taskcount--;
+	return 1;
+}
 
 // Đang hơi xung đột kiểu DỮ LIỆU stdint với unsigned -> nên dùng một cái thôi
+// Chỉnh sửa lại Update với Add để cho nó O(1) nhưng mà xoá thêm liên tục nó bị chậm :))
 
 
 
-// Khởi tạo scheduler
-void SCH_Init(void) {
-    unsigned char i;
-    for (i = 0; i < SCH_MAX_TASKS; i++) {
-        SCH_Delete_Task(i);     // Xóa các nhiệm vụ khỏi mảng
-    }
-    Error_code_G = 0;           // Đặt mã lỗi về 0
-    //Timer_init();               // Khởi tạo bộ đếm thời gian
-    //Watchdog_init();            // Khởi tạo watchdog
-}
 
 
-// Thêm nhiệm vụ vào scheduler
-unsigned char SCH_Add_Task(void (*pFunction)(), unsigned int DELAY, unsigned int PERIOD) {
-    unsigned char Index = 0;
-    // Tìm vị trí trống trong mảng nhiệm vụ
-    while ((SCH_tasks_G[Index].pTask != 0) && (Index < SCH_MAX_TASKS)) {
-        Index++;
-    }
-    // Kiểm tra nếu mảng đã đầy
-    if (Index == SCH_MAX_TASKS) {
-        Error_code_G = ERROR_SCH_TOO_MANY_TASKS; // Đặt mã lỗi
-        return SCH_MAX_TASKS;
-    }
-    // Thêm nhiệm vụ vào mảng
-    SCH_tasks_G[Index].pTask = pFunction;
-    SCH_tasks_G[Index].Delay = DELAY;
-    SCH_tasks_G[Index].Period = PERIOD;
-    SCH_tasks_G[Index].RunMe = 0;
 
-    //SCH_tasks_G[Index].TaskID =
-    return Index;
-}
 
-// Cập nhật thời gian đợi của các nhiệm vụ trong scheduler
-void SCH_Update(void) {
-    unsigned char Index;
-    for (Index = 0; Index < SCH_MAX_TASKS; Index++) {
-        if (SCH_tasks_G[Index].pTask) {      // Nếu nhiệm vụ tồn tại
-            if (SCH_tasks_G[Index].Delay == 0) {
-                SCH_tasks_G[Index].RunMe += 1;    // Đánh dấu nhiệm vụ đã đến hạn chạy
-                if (SCH_tasks_G[Index].Period) {
-                    SCH_tasks_G[Index].Delay = SCH_tasks_G[Index].Period; // Cập nhật chu kỳ
-                }
-            } else {
-                SCH_tasks_G[Index].Delay -= 1;    // Giảm thời gian chờ
-            }
-        }
-    }
-}
 
-// Điều phối nhiệm vụ - thực thi các nhiệm vụ đã đến thời gian
-void SCH_Dispatch_Tasks(void) {
-    unsigned char Index;
-    for (Index = 0; Index < SCH_MAX_TASKS; Index++) {
-        if (SCH_tasks_G[Index].RunMe > 0) {
-            (*SCH_tasks_G[Index].pTask)();       // Thực thi nhiệm vụ
-            SCH_tasks_G[Index].RunMe -= 1;       // Đặt lại cờ
-            // Nếu nhiệm vụ chỉ chạy một lần, xóa khỏi mảng
-            if (SCH_tasks_G[Index].Period == 0) {
-                SCH_Delete_Task(Index);
-            }
-        }
-    }
-}
 
-// Xóa nhiệm vụ dựa trên taskID
-unsigned char SCH_Delete_Task(const unsigned int taskID) {
-    unsigned char Return_code;
-    if (SCH_tasks_G[taskID].pTask == 0) {
-        Error_code_G = ERROR_SCH_CANNOT_DELETE_TASK;
-        Return_code = RETURN_ERROR;
-    } else {
-        Return_code = RETURN_NORMAL;
-    }
-    SCH_tasks_G[taskID].pTask = 0x0000;
-    SCH_tasks_G[taskID].Delay = 0;
-    SCH_tasks_G[taskID].Period = 0;
-    SCH_tasks_G[taskID].RunMe = 0;
-    return Return_code;
-}
 
-//Chuyển MCU vào SLEEP
-void SCH_Go_To_Sleep(void) {
-    // Chuyển MCU vào chế độ ngủ (tuỳ chọn)
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /////////////////////////////////////////////////////////////////
 uint8_t Error_code_G = 0;
 uint8_t Last_error_code_G = 0;
 uint32_t Error_tick_count_G = 0;
-uint8_t Error_code_G;
+
 
 // Hàm báo cáo trạng thái lỗi
 /*void SCH_Report_Status(void) {

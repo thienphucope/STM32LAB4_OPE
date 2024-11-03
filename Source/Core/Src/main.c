@@ -23,6 +23,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "scheduler.h"
+#include <stdio.h>
+#include <string.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,6 +45,8 @@
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim2;
 
+UART_HandleTypeDef huart1;
+
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -50,14 +55,36 @@ TIM_HandleTypeDef htim2;
 void SystemClock_Config(void);
 static void MX_TIM2_Init(void);
 static void MX_GPIO_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+int timestamp = 0;
 void PA1(){
 	HAL_GPIO_TogglePin(RED_LED_GPIO_Port, RED_LED_Pin);
+}
+void PA2(){
+	HAL_GPIO_TogglePin(YELLOW_LED_GPIO_Port, YELLOW_LED_Pin);
+}
+void PA3(){
+	HAL_GPIO_TogglePin(WHITE_LED_GPIO_Port, WHITE_LED_Pin);
+}
+void PA4(){
+	HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+}
+void PA5(){
+	HAL_GPIO_TogglePin(AQUA_LED_GPIO_Port, AQUA_LED_Pin);
+}
+void UART_Timestamp(void)
+{
+	int i = IDtoPrint;
+	char strTimestamp[50];  // Buffer to hold the formatted string
+	sprintf(strTimestamp, "%u: %u ms\r\n", i, timestamp *10);  // Format the timestamp as a string
+	HAL_UART_Transmit(&huart1, (uint8_t*)strTimestamp, strlen(strTimestamp), 2000);  // Send it via UART
+
 }
 /* USER CODE END 0 */
 
@@ -90,19 +117,36 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_TIM2_Init();
   MX_GPIO_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  SCH_Add_Task(PA1, 50, 50);
+  SCH_Init();
+
+  //SCH_Add_Task(UART_Timestamp, 0, 2);
+
+  SCH_Add_Task(PA1, 10, 0);
+  SCH_Add_Task(PA2, 20, 500);
+  SCH_Add_Task(PA3, 30, 1000);
+  SCH_Add_Task(PA4, 50, 1500);
+  SCH_Add_Task(PA5, 70, 1000);
+
+
+
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  SCH_Dispatch_Tasks();
+	  int i = SCH_Dispatch_Tasks();
+	  if (i == 1)
+	  {
+	  UART_Timestamp();
+	  i = 0;
+	  }
   }
   /* USER CODE END 3 */
 }
@@ -188,6 +232,39 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 9600;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -200,14 +277,17 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, RED_LED_Pin|YELLOW_LED_Pin|WHITE_LED_Pin|GREEN_LED_Pin
+                          |AQUA_LED_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : RED_LED_Pin */
-  GPIO_InitStruct.Pin = RED_LED_Pin;
+  /*Configure GPIO pins : RED_LED_Pin YELLOW_LED_Pin WHITE_LED_Pin GREEN_LED_Pin
+                           AQUA_LED_Pin */
+  GPIO_InitStruct.Pin = RED_LED_Pin|YELLOW_LED_Pin|WHITE_LED_Pin|GREEN_LED_Pin
+                          |AQUA_LED_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(RED_LED_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 }
 
@@ -215,6 +295,8 @@ static void MX_GPIO_Init(void)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	{
 		SCH_Update();
+		timestamp++;
+
 
 	}
 /* USER CODE END 4 */
